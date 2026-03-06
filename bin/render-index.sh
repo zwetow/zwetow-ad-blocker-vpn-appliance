@@ -530,7 +530,7 @@ h2 { margin-top: 0; }
   <div class="topbar">
     <div class="brand-text">
       <div class="title">Network Ad Blocker &amp; VPN Appliance</div>
-      <div class="subtitle">Local landing page + quick links + device info.</div>
+      <div class="subtitle">Local control panel + quick links + device info.</div>
     </div>
 
     <nav class="nav">
