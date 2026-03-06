@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os, glob, subprocess
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 
@@ -28,6 +29,51 @@ def run_script(path):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
+
+        # ----- Metrics proxy -----
+        if path == "/metrics":
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:9090/metrics", timeout=2) as r:
+                    payload = r.read()
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    ('{"error": "%s"}' % str(e)).encode("utf-8")
+                )
+                return
+
+        if path == "/status.json":
+            fpath = "/var/www/html/zwetow/status.json"
+            if not os.path.isfile(fpath):
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"error":"status.json not found"}')
+                return
+
+            size = os.path.getsize(fpath)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            with open(fpath, "rb") as f:
+                self.wfile.write(f.read())
+            return
 
         # ----- Support bundle flow -----
         if path == "/support":
@@ -87,7 +133,7 @@ class Handler(BaseHTTPRequestHandler):
 <body style="background:#0b0f14;color:#e6edf3;font-family:Arial;padding:24px;">
 <h2>Update {'Complete' if code==0 else 'Failed'}</h2>
 <pre style="background:#0a0f1a;border:1px solid #243244;border-radius:12px;padding:12px;white-space:pre-wrap;">{out}</pre>
-<p><a href="/" style="color:#7dd3fc;">Back to Home</a></p>
+<p><a href="http://{self.headers.get('Host','').split(':')[0]}/" style="color:#7dd3fc;">Back to Home</a></p>
 </body></html>"""
             self.wfile.write(body.encode("utf-8"))
             return
@@ -102,7 +148,7 @@ class Handler(BaseHTTPRequestHandler):
 <body style="background:#0b0f14;color:#e6edf3;font-family:Arial;padding:24px;">
 <h2>Rollback {'Complete' if code==0 else 'Failed'}</h2>
 <pre style="background:#0a0f1a;border:1px solid #243244;border-radius:12px;padding:12px;white-space:pre-wrap;">{out}</pre>
-<p><a href="/" style="color:#7dd3fc;">Back to Home</a></p>
+<p><a href="http://{self.headers.get('Host','').split(':')[0]}/" style="color:#7dd3fc;">Back to Home</a></p>
 </body></html>"""
             self.wfile.write(body.encode("utf-8"))
             return

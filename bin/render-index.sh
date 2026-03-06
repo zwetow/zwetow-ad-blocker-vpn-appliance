@@ -19,7 +19,11 @@ HOST="$(hostname)"
 IP="$(hostname -I | awk '{print $1}')"
 CURRENT_VER="$(cat /opt/zwetow/VERSION 2>/dev/null || echo 'unknown')"
 LATEST_VER="$(cat /opt/zwetow/state/LATEST_VERSION 2>/dev/null || echo 'unknown')"
-UPDATE_AVAIL="$(cat /opt/zwetow/state/UPDATE_AVAILABLE 2>/dev/null || true)"
+UPDATE_AVAIL=""
+
+if [[ -f /opt/zwetow/state/UPDATE_AVAILABLE && "$LATEST_VER" != "$CURRENT_VER" ]]; then
+  UPDATE_AVAIL="$(cat /opt/zwetow/state/UPDATE_AVAILABLE 2>/dev/null || true)"
+fi
 UPTIME="$(uptime -p 2>/dev/null || echo 'unknown')"
 NOW="$(date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || echo '')"
 BUILD="$(date '+%Y.%m.%d' 2>/dev/null || echo 'dev')"
@@ -60,6 +64,9 @@ sanitize_pct() {
     printf '0'
   fi
 }
+CPU_PCT="$(sanitize_pct "$CPU_PCT")"
+MEM_PCT="$(sanitize_pct "$MEM_PCT")"
+DISK_PCT="$(sanitize_pct "$DISK_PCT")"
 CPU_TEMP="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('cpu_temp_c','?'))" 2>/dev/null || echo '?')"
 WG_PEERS="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('wg_peer_count','?'))" 2>/dev/null || echo '?')"
 PH_Q="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('pihole_dns_queries_today','?'))" 2>/dev/null || echo '?')"
@@ -121,6 +128,15 @@ if ss -ltnp 2>/dev/null | grep -qE ':(3001)\s'; then
   KUMA_LISTEN="3001 (listening)"
 fi
 
+RENDER_TIMER_ACTIVE="$(systemctl is-active zwetow-render.timer 2>/dev/null || echo 'unknown')"
+UPDATE_TIMER_ACTIVE="$(systemctl is-active zwetow-check-update.timer 2>/dev/null || echo 'unknown')"
+
+RENDER_TIMER_PILL="pill-bad"
+[[ "$RENDER_TIMER_ACTIVE" == "active" ]] && RENDER_TIMER_PILL="pill-ok"
+
+UPDATE_TIMER_PILL="pill-bad"
+[[ "$UPDATE_TIMER_ACTIVE" == "active" ]] && UPDATE_TIMER_PILL="pill-ok"
+
 STATUS_CLASS="status-ok"
 STATUS_TEXT="All services operational"
 
@@ -141,6 +157,7 @@ cat > "$OUT" <<EOF
 <!doctype html>
 <html>
 <head>
+  <link rel="icon" href="data:,">
   <meta charset="utf-8">
   <title>Zwetow Network Appliance</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -258,9 +275,10 @@ body {
 
 .meter > span{
   display:block;
-  height: 100%;
-  width: 0%;
+  height:100%;
+  width:0%;
   background: linear-gradient(90deg, var(--accent), var(--accent2));
+  transition: width 0.6s ease;
 }
 
 .icons{
@@ -557,43 +575,46 @@ ${UPDATE_AVAIL:+
 <div class="grid">
   <div id="home" class="card span-2">
     <h2>Device Info</h2>
-    <div><b>Hostname:</b> ${HOST}</div>
-    <div><b>IP Address:</b> ${IP}</div>
+    <div><b>Hostname:</b> <span id="live-hostname">${HOST}</span></div>
+    <div><b>IP Address:</b> <span id="live-ip">${IP}</span></div>
+    <div><b>OS:</b> <span id="live-os">${OS}</span></div>
+    <div><b>Kernel:</b> <span id="live-kernel">${KERNEL}</span></div>
+    <div><b>Pi-hole:</b> <span id="live-pihole">${PIHOLE_VERSION}</span></div>
     <div><b>LAN Subnet (eth0):</b> ${LAN_SUBNET}</div>
     <div><b>Uptime:</b> ${UPTIME}</div>
     <div><b>Time:</b> ${NOW}</div>
     <div><b>Public IP:</b> ${PUB_IP}</div>
     <div><b>Serial:</b> ${SERIAL}</div>
-    <div><b>OS:</b> ${OS}</div>
-    <div><b>Kernel:</b> ${KERNEL}</div>
-    <div><b>Pi-hole:</b> ${PIHOLE_VERSION}</div>
 
     <h3>Services</h3>
     <div><b>Uptime Kuma:</b> <span class="pill ${KUMA_PILL_CLASS}">${KUMA_ACTIVE}</span> • ${KUMA_LISTEN}</div>
-    <div> <b>Pi-hole:</b> <span class="pill ${PH_PILL_CLASS}">${PH_LABEL}</span> • ${PH_DNS_LISTEN} • <b>Queries today:</b> ${PH_Q} • <b>Blocked:</b> ${PH_BLOCKED} (${PH_PCT}%)</div>
-    <div><b>WireGuard:</b> ${WG_VER} • <span class="pill ${WG_PILL_CLASS}">${WG_ACTIVE}</span> • ${WG_PORT}</div>
-    <div><b>WireGuard peers:</b> ${WG_PEERS}</div>
+    <div> <b>Pi-hole:</b> <span class="pill ${PH_PILL_CLASS}">${PH_LABEL}</span> • ${PH_DNS_LISTEN} • <b>Queries today:</b> <span id="ph-queries">${PH_Q}</span> <b>Blocked:</b> <span id="ph-blocked">${PH_BLOCKED}</span> (<span id="ph-pct">${PH_PCT}</span>%)</div>
+    <div><b>WireGuard:</b> <span id="live-wireguard-ver">${WG_VER}</span> • <span class="pill ${WG_PILL_CLASS}">${WG_ACTIVE}</span> • ${WG_PORT}</div>
+    <div><b>WireGuard peers:</b> <span id="wg-peers">${WG_PEERS}</span></div>
 
     <h3>Health</h3>
     <div><b>Overall:</b> <span class="pill ${HEALTH_PILL_CLASS} ${HEALTH_PULSE}">${HEALTH_LABEL}</span></div>
-    <div><b>Temp:</b> ${CPU_TEMP}°C</div>
+    <div><b>Temp:</b> <span id="cpu-temp">${CPU_TEMP}</span>°C</div>
 
     <div class="meter-row">
-      <div class="meter-head"><span><b>CPU</b></span><span>${CPU_PCT}%</span></div>
-      <div class="meter"><span style="width:${CPU_PCT}%"></span></div>
+      <div class="meter-head"><span><b>CPU</b></span><span id="cpu-pct-text">${CPU_PCT}%</span></div>
+      <div class="meter"><span id="cpu-bar" style="width:${CPU_PCT}%"></span></div>
     </div>
 
     <div class="meter-row">
-      <div class="meter-head"><span><b>Memory</b></span><span>${MEM_PCT}%</span></div>
-      <div class="meter"><span style="width:${MEM_PCT}%"></span></div>
+      <div class="meter-head"><span><b>Memory</b></span><span id="mem-pct-text">${MEM_PCT}%</span></div>
+      <div class="meter"><span id="mem-bar" style="width:${MEM_PCT}%"></span></div>
     </div>
 
     <div class="meter-row">
-      <div class="meter-head"><span><b>Disk</b></span><span>${DISK_PCT}%</span></div>
-      <div class="meter"><span style="width:${DISK_PCT}%"></span></div>
+      <div class="meter-head"><span><b>Disk</b></span><span id="disk-pct-text">${DISK_PCT}%</span></div>
+      <div class="meter"><span id="disk-bar" style="width:${DISK_PCT}%"></span></div>
     </div>
 
-    <p class="muted">Auto-updates on boot + every 5 minutes.</p>
+    <p class="muted">
+      Render timer: <span class="pill ${RENDER_TIMER_PILL}">${RENDER_TIMER_ACTIVE}</span>
+      • Update check timer: <span class="pill ${UPDATE_TIMER_PILL}">${UPDATE_TIMER_ACTIVE}</span>
+    </p>
   </div>
 
   <div id="links" class="card">
@@ -623,6 +644,109 @@ ${UPDATE_AVAIL:+
 <p class="muted" style="margin:18px 2px 0; font-size:12px;">
   Zwetow Appliance • Build ${BUILD} • Host ${HOST}
 </p>
+<p class="muted" id="live-last-update" style="margin:8px 2px 0; font-size:12px;">
+  Live status refresh: waiting...
+</p>
+<script>
+async function refreshStatus() {
+  try {
+    const res = await fetch(
+      'http://' + window.location.hostname + ':9091/status.json?_=' + Date.now(),
+      { cache: 'no-store' }
+    );
+
+    if (!res.ok) {
+      throw new Error('status fetch failed');
+    }
+
+    const data = await res.json();
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el && value !== undefined && value !== null && value !== '') {
+        el.textContent = value;
+      }
+    };
+
+    setText('live-hostname', data.hostname);
+    setText('live-ip', data.ip);
+    setText('live-os', data.os);
+    setText('live-kernel', data.kernel);
+    setText('live-wireguard-ver', data.wireguard);
+
+    if (data.pihole_core || data.pihole_web || data.pihole_ftl) {
+      const piholeText = [data.pihole_core, data.pihole_web, data.pihole_ftl]
+        .filter(Boolean)
+        .join(' | ');
+      setText('live-pihole', piholeText);
+    }
+
+    const stamp = document.getElementById('live-last-update');
+    if (stamp) {
+      stamp.textContent = 'Live status refresh: ' + new Date().toLocaleTimeString();
+    }
+  } catch (e) {
+    console.error('refreshStatus failed:', e);
+    const stamp = document.getElementById('live-last-update');
+    if (stamp) {
+      stamp.textContent = 'Live status refresh failed: ' + new Date().toLocaleTimeString();
+    }
+  }
+}
+
+async function refreshMetrics() {
+  try {
+    const res = await fetch(
+      'http://' + window.location.hostname + ':9091/metrics?_=' + Date.now(),
+      { cache: 'no-store' }
+    );
+
+    if (!res.ok) {
+      throw new Error('metrics fetch failed');
+    }
+
+    const m = await res.json();
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el && value !== undefined && value !== null && value !== '') {
+        el.textContent = value;
+      }
+    };
+
+    const setWidth = (id, value) => {
+      const el = document.getElementById(id);
+      const num = Number(value);
+      if (el && !Number.isNaN(num)) {
+        const pct = Math.max(0, Math.min(100, num));
+        el.style.width = pct + '%';
+      }
+    };
+
+    setText('cpu-pct-text', m.cpu_percent);
+    setText('mem-pct-text', m.memory_percent);
+    setText('disk-pct-text', m.disk_percent);
+
+    setWidth('cpu-bar', m.cpu_percent);
+    setWidth('mem-bar', m.memory_percent);
+    setWidth('disk-bar', m.disk_percent);
+
+    setText('cpu-temp', m.cpu_temp_c);
+    setText('wg-peers', m.wg_peer_count);
+    setText('ph-queries', m.pihole_dns_queries_today);
+    setText('ph-blocked', m.pihole_ads_blocked_today);
+    setText('ph-pct', m.pihole_ads_percentage_today);
+  } catch (e) {
+    console.error('refreshMetrics failed:', e);
+  }
+}
+
+refreshStatus();
+refreshMetrics();
+
+setInterval(refreshStatus, 15000);
+setInterval(refreshMetrics, 10000);
+</script>
 </body>
 </html>
 EOF
