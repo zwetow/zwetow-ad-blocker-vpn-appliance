@@ -1,0 +1,6 @@
+[Unit]
+Description=Check for Zwetow updates
+
+[Service]
+Type=oneshot
+ExecStart=/opt/zwetow/bin/zwetow-check-update.sh

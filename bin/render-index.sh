@@ -17,6 +17,9 @@ fi
 
 HOST="$(hostname)"
 IP="$(hostname -I | awk '{print $1}')"
+CURRENT_VER="$(cat /opt/zwetow/VERSION 2>/dev/null || echo 'unknown')"
+LATEST_VER="$(cat /opt/zwetow/state/LATEST_VERSION 2>/dev/null || echo 'unknown')"
+UPDATE_AVAIL="$(cat /opt/zwetow/state/UPDATE_AVAILABLE 2>/dev/null || true)"
 UPTIME="$(uptime -p 2>/dev/null || echo 'unknown')"
 NOW="$(date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || echo '')"
 BUILD="$(date '+%Y.%m.%d' 2>/dev/null || echo 'dev')"
@@ -45,6 +48,18 @@ fi
 CPU_PCT="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('cpu_percent','?'))" 2>/dev/null || echo '?')"
 MEM_PCT="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('memory_percent','?'))" 2>/dev/null || echo '?')"
 DISK_PCT="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('disk_percent','?'))" 2>/dev/null || echo '?')"
+sanitize_pct() {
+  local v="${1:-}"
+  if [[ "$v" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    awk -v n="$v" 'BEGIN {
+      if (n < 0) n = 0;
+      if (n > 100) n = 100;
+      print n;
+    }'
+  else
+    printf '0'
+  fi
+}
 CPU_TEMP="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('cpu_temp_c','?'))" 2>/dev/null || echo '?')"
 WG_PEERS="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('wg_peer_count','?'))" 2>/dev/null || echo '?')"
 PH_Q="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('pihole_dns_queries_today','?'))" 2>/dev/null || echo '?')"
@@ -140,7 +155,9 @@ cat > "$OUT" <<EOF
   --muted: #9aa6b2;
   --link: #7dd3fc;
   --linkHover: #bae6fd;
-
+  --warnBg: #451a03;
+  --warnBorder: #92400e;
+  --warnText: #f59e0b;
   --okBg: #064e3b;
   --okBorder: #065f46;
   --okText: #22c55e;
@@ -398,6 +415,50 @@ pre {
   color: #fca5a5;
 }
 
+
+.updatebar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin: 0 0 14px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warnBorder);
+  border-radius: 14px;
+  background: rgba(69,26,3,0.20);
+}
+
+.update-left, .update-right{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height:30px;
+  padding:0 10px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  background: rgba(31,41,55,0.35);
+  color: var(--text);
+  text-decoration:none;
+  font-weight:700;
+  font-size:12px;
+}
+
+.btn:hover{
+  border-color: var(--borderHover);
+  transform: translateY(-1px);
+}
+
+.btn-ghost{
+  background: transparent;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -410,6 +471,19 @@ pre {
   font-size: 12px;
   line-height: 1.3;
 }
+
+.pill-warn {
+  background: var(--warnBg);
+  border-color: var(--warnBorder);
+  color: var(--warnText);
+}
+
+@keyframes pulseWarn {
+  0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.28); }
+  70%  { box-shadow: 0 0 0 8px rgba(245,158,11,0.00); }
+  100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.00); }
+}
+.pulse-warn { animation: pulseWarn 1.6s infinite; }
 
 .pill-ok  { background: var(--okBg);  border-color: var(--okBorder);  color: var(--okText); }
 .pill-bad { background: var(--badBg); border-color: var(--badBorder); color: var(--badText); }
@@ -467,6 +541,19 @@ h2 { margin-top: 0; }
   </div>
 </header>
 <div class="status-bar ${STATUS_CLASS}">${STATUS_TEXT}</div>
+${UPDATE_AVAIL:+
+<div class="updatebar">
+  <div class="update-left">
+    <span class="pill pill-warn pulse-warn">Update available</span>
+    <span class="muted">Current: ${CURRENT_VER}</span>
+    <span class="muted">Latest: ${LATEST_VER}</span>
+  </div>
+  <div class="update-right">
+    <a class="btn" href="http://${IP}:9091/update">Update</a>
+    <a class="btn btn-ghost" href="http://${IP}:9091/rollback">Rollback</a>
+  </div>
+</div>
+}
 <div class="grid">
   <div id="home" class="card span-2">
     <h2>Device Info</h2>

@@ -1,0 +1,14 @@
+[Unit]
+Description=Zwetow Support/Update Mini Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/zwetow/bin/support-download-server.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
