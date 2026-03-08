@@ -28,7 +28,12 @@ umask 077
 CLIENT_PRIV="$(wg genkey)"
 CLIENT_PUB="$(echo "$CLIENT_PRIV" | wg pubkey)"
 
-SERVER_PUB="$(sudo cat $WG_DIR/server_public.key)"
+if [[ ! -f "$WG_DIR/server_public.key" ]]; then
+  echo "Missing $WG_DIR/server_public.key"
+  exit 1
+fi
+
+SERVER_PUB="$(sudo cat "$WG_DIR/server_public.key")"
 
 # You should set ENDPOINT to your public DNS later (for now it can be blank or LAN IP for testing)
 ENDPOINT="$(hostname -I | awk '{print $1}'):51820"

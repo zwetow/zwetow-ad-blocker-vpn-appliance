@@ -8,11 +8,11 @@ SERIAL="$(awk '/Serial/ {print $3}' /proc/cpuinfo | tail -n1)"
 OS="$(. /etc/os-release; echo "$PRETTY_NAME")"
 KERNEL="$(uname -r)"
 
-PIHOLE_CORE="$(pihole -v -c 2>/dev/null | tr -d '\n' || true)"
-PIHOLE_WEB="$(pihole -v -w 2>/dev/null | tr -d '\n' || true)"
-PIHOLE_FTL="$(pihole -v -f 2>/dev/null | tr -d '\n' || true)"
+PIHOLE_CORE="$(pihole -v 2>/dev/null | awk -F'[: ]+' '/Core version is/ {print "Core " $4}' | head -n1)"
+PIHOLE_WEB="$(pihole -v 2>/dev/null | awk -F'[: ]+' '/Web version is/ {print "Web " $4}' | head -n1)"
+PIHOLE_FTL="$(pihole -v 2>/dev/null | awk -F'[: ]+' '/FTL version is/ {print "FTL " $4}' | head -n1)"
 
-WG_VER="$(wg --version 2>/dev/null | head -n1 || true)"
+WG_VER="$(wg --version 2>/dev/null | awk '{print $2}' || echo 'not installed')"
 KUMA_URL="http://${IP}:3001/"
 ADMIN_URL="http://${IP}/admin/"
 

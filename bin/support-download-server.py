@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+import json
+import re
 import os, glob, subprocess
 import urllib.request
+from urllib.parse import urlparse, parse_qs, unquote
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 
@@ -9,6 +12,10 @@ GEN_SCRIPT = "/opt/zwetow/bin/zwetow-support-bundle.sh"
 
 UPDATE_SCRIPT = "/opt/zwetow/bin/zwetow-update.sh"
 ROLLBACK_SCRIPT = "/opt/zwetow/bin/zwetow-rollback.sh"
+
+CLIENT_DIR = "/etc/zwetow/clients"
+WG_ADD_CLIENT_SCRIPT = "/opt/zwetow/bin/wg-add-client.sh"
+CLIENT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 def latest_bundle():
     files = sorted(
@@ -26,9 +33,59 @@ def run_script(path):
     out = out.strip() or "(no output)"
     return (p.returncode, out)
 
+def json_response(handler, status_code, payload):
+    body = json.dumps(payload).encode("utf-8")
+    handler.send_response(status_code)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+def is_valid_client_name(name):
+    return bool(name and CLIENT_NAME_RE.fullmatch(name))
+
+def list_clients():
+    os.makedirs(CLIENT_DIR, exist_ok=True)
+    items = []
+    for fname in sorted(os.listdir(CLIENT_DIR)):
+        if fname.endswith(".conf"):
+            items.append(fname[:-5])
+    return items
+
+def client_conf_path(name):
+    return os.path.join(CLIENT_DIR, f"{name}.conf")
+
+def run_add_client(name):
+    if not os.path.exists(WG_ADD_CLIENT_SCRIPT):
+        return (1, f"Missing script: {WG_ADD_CLIENT_SCRIPT}")
+    p = subprocess.run(
+        [WG_ADD_CLIENT_SCRIPT, name],
+        capture_output=True,
+        text=True
+    )
+    out = ((p.stdout or "") + (p.stderr or "")).strip() or "(no output)"
+    return (p.returncode, out)
+
+def build_qr_png(conf_path):
+    p = subprocess.run(
+        ["qrencode", "-o", "-", "-t", "PNG"],
+        input=open(conf_path, "rb").read(),
+        capture_output=True
+    )
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr or b"qrencode failed").decode("utf-8", errors="ignore"))
+    return p.stdout
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
+
+        parsed = urlparse(self.path)
+        path = parsed.path
+        qs = parse_qs(parsed.query)
 
         # ----- Metrics proxy -----
         if path == "/metrics":
@@ -74,6 +131,93 @@ class Handler(BaseHTTPRequestHandler):
             with open(fpath, "rb") as f:
                 self.wfile.write(f.read())
             return
+
+        if path == "/wireguard/clients":
+            json_response(self, 200, {"clients": list_clients()})
+            return
+
+        if path == "/wireguard/add-client":
+            name = (qs.get("name") or [""])[0].strip()
+            if not is_valid_client_name(name):
+                json_response(self, 400, {
+                    "error": "Invalid client name. Use letters, numbers, dash, underscore only."
+                })
+                return
+
+            conf_path = client_conf_path(name)
+            if os.path.exists(conf_path):
+                json_response(self, 200, {
+                    "ok": True,
+                    "client": name,
+                    "message": "Client already exists"
+                })
+                return
+
+            code, out = run_add_client(name)
+            if code != 0:
+                json_response(self, 500, {
+                    "error": "Failed to create client",
+                    "detail": out
+                })
+                return
+
+            json_response(self, 200, {
+                "ok": True,
+                "client": name,
+                "message": "Client created",
+                "detail": out
+            })
+            return
+
+        if path.startswith("/wireguard/client/") and path.endswith("/config"):
+            name = path[len("/wireguard/client/"):-len("/config")].strip("/")
+            name = unquote(name)
+            if not is_valid_client_name(name):
+                json_response(self, 400, {"error": "Invalid client name"})
+                return
+
+            conf_path = client_conf_path(name)
+            if not os.path.isfile(conf_path):
+                json_response(self, 404, {"error": "Client config not found"})
+                return
+
+            size = os.path.getsize(conf_path)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{name}.conf"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            with open(conf_path, "rb") as f:
+                self.wfile.write(f.read())
+            return
+
+        if path.startswith("/wireguard/client/") and path.endswith("/qr"):
+            name = path[len("/wireguard/client/"):-len("/qr")].strip("/")
+            name = unquote(name)
+            if not is_valid_client_name(name):
+                json_response(self, 400, {"error": "Invalid client name"})
+                return
+
+            conf_path = client_conf_path(name)
+            if not os.path.isfile(conf_path):
+                json_response(self, 404, {"error": "Client config not found"})
+                return
+
+            try:
+                png = build_qr_png(conf_path)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(png)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(png)
+                return
+            except Exception as e:
+                json_response(self, 500, {"error": str(e)})
+                return
 
         # ----- Support bundle flow -----
         if path == "/support":
