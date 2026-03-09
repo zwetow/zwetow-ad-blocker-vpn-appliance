@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 import json
+import glob
+import os
 import re
-import os, glob, subprocess
+import subprocess
 import urllib.request
-from urllib.parse import urlparse, parse_qs, unquote
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 BUNDLE_DIR = "/var/tmp"
 GEN_SCRIPT = "/opt/zwetow/bin/zwetow-support-bundle.sh"
+STATUS_JSON_PATH = "/var/www/html/zwetow/status.json"
 
 UPDATE_SCRIPT = "/opt/zwetow/bin/zwetow-update.sh"
 ROLLBACK_SCRIPT = "/opt/zwetow/bin/zwetow-rollback.sh"
@@ -43,6 +45,19 @@ def json_response(handler, status_code, payload):
     handler.end_headers()
     handler.wfile.write(body)
 
+
+def html_result_page(action, code, out, host):
+    safe_host = (host or "").split(":")[0]
+    result = "Complete" if code == 0 else "Failed"
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>{action}</title></head>
+<body style="background:#0b0f14;color:#e6edf3;font-family:Arial;padding:24px;">
+<h2>{action} {result}</h2>
+<pre style="background:#0a0f1a;border:1px solid #243244;border-radius:12px;padding:12px;white-space:pre-wrap;">{out}</pre>
+<p><a href="http://{safe_host}/" style="color:#7dd3fc;">Back to Home</a></p>
+</body></html>""".encode("utf-8")
+
+
 def is_valid_client_name(name):
     return bool(name and CLIENT_NAME_RE.fullmatch(name))
 
@@ -69,9 +84,11 @@ def run_add_client(name):
     return (p.returncode, out)
 
 def build_qr_png(conf_path):
+    with open(conf_path, "rb") as conf_file:
+        conf_data = conf_file.read()
     p = subprocess.run(
         ["qrencode", "-o", "-", "-t", "PNG"],
-        input=open(conf_path, "rb").read(),
+        input=conf_data,
         capture_output=True
     )
     if p.returncode != 0:
@@ -80,9 +97,37 @@ def build_qr_png(conf_path):
 
 
 class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        path = urlparse(self.path).path
+    def send_raw(self, status_code, content_type, payload, cache_control=True, cors=True):
+        self.send_response(status_code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        if cache_control:
+            self.send_header("Cache-Control", "no-store")
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(payload)
 
+    def send_file(self, file_path, content_type, attachment_name=None, cache_control=True, cors=True):
+        size = os.path.getsize(file_path)
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(size))
+        if attachment_name:
+            self.send_header("Content-Disposition", f'attachment; filename="{attachment_name}"')
+        if cache_control:
+            self.send_header("Cache-Control", "no-store")
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        with open(file_path, "rb") as file_handle:
+            while True:
+                chunk = file_handle.read(1024 * 256)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
+    def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
@@ -93,25 +138,15 @@ class Handler(BaseHTTPRequestHandler):
                 with urllib.request.urlopen("http://127.0.0.1:9090/metrics", timeout=2) as r:
                     payload = r.read()
 
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(payload)
+                self.send_raw(200, "application/json", payload)
                 return
 
             except Exception as e:
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(
-                    ('{"error": "%s"}' % str(e)).encode("utf-8")
-                )
+                self.send_raw(500, "application/json", ('{"error": "%s"}' % str(e)).encode("utf-8"), cache_control=False)
                 return
 
         if path == "/status.json":
-            fpath = "/var/www/html/zwetow/status.json"
+            fpath = STATUS_JSON_PATH
             if not os.path.isfile(fpath):
                 self.send_response(404)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -120,16 +155,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"error":"status.json not found"}')
                 return
 
-            size = os.path.getsize(fpath)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-
-            with open(fpath, "rb") as f:
-                self.wfile.write(f.read())
+            self.send_file(fpath, "application/json; charset=utf-8")
             return
 
         if path == "/wireguard/clients":
@@ -181,16 +207,7 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, 404, {"error": "Client config not found"})
                 return
 
-            size = os.path.getsize(conf_path)
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Content-Disposition", f'attachment; filename="{name}.conf"')
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            with open(conf_path, "rb") as f:
-                self.wfile.write(f.read())
+            self.send_file(conf_path, "text/plain; charset=utf-8", attachment_name=f"{name}.conf")
             return
 
         if path.startswith("/wireguard/client/") and path.endswith("/qr"):
@@ -207,13 +224,7 @@ class Handler(BaseHTTPRequestHandler):
 
             try:
                 png = build_qr_png(conf_path)
-                self.send_response(200)
-                self.send_header("Content-Type", "image/png")
-                self.send_header("Content-Length", str(len(png)))
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(png)
+                self.send_raw(200, "image/png", png)
                 return
             except Exception as e:
                 json_response(self, 500, {"error": str(e)})
@@ -250,51 +261,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             fname = os.path.basename(fpath)
-            size = os.path.getsize(fpath)
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/gzip")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
-            self.end_headers()
-
-            with open(fpath, "rb") as f:
-                while True:
-                    chunk = f.read(1024 * 256)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
+            self.send_file(fpath, "application/gzip", attachment_name=fname, cache_control=False, cors=False)
             return
 
         # ----- Update / Rollback flow -----
         if path == "/update":
             code, out = run_script(UPDATE_SCRIPT)
-            self.send_response(200 if code == 0 else 500)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            body = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Update</title></head>
-<body style="background:#0b0f14;color:#e6edf3;font-family:Arial;padding:24px;">
-<h2>Update {'Complete' if code==0 else 'Failed'}</h2>
-<pre style="background:#0a0f1a;border:1px solid #243244;border-radius:12px;padding:12px;white-space:pre-wrap;">{out}</pre>
-<p><a href="http://{self.headers.get('Host','').split(':')[0]}/" style="color:#7dd3fc;">Back to Home</a></p>
-</body></html>"""
-            self.wfile.write(body.encode("utf-8"))
+            body = html_result_page("Update", code, out, self.headers.get("Host", ""))
+            self.send_raw(200 if code == 0 else 500, "text/html; charset=utf-8", body, cache_control=False, cors=False)
             return
 
         if path == "/rollback":
             code, out = run_script(ROLLBACK_SCRIPT)
-            self.send_response(200 if code == 0 else 500)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            body = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Rollback</title></head>
-<body style="background:#0b0f14;color:#e6edf3;font-family:Arial;padding:24px;">
-<h2>Rollback {'Complete' if code==0 else 'Failed'}</h2>
-<pre style="background:#0a0f1a;border:1px solid #243244;border-radius:12px;padding:12px;white-space:pre-wrap;">{out}</pre>
-<p><a href="http://{self.headers.get('Host','').split(':')[0]}/" style="color:#7dd3fc;">Back to Home</a></p>
-</body></html>"""
-            self.wfile.write(body.encode("utf-8"))
+            body = html_result_page("Rollback", code, out, self.headers.get("Host", ""))
+            self.send_raw(200 if code == 0 else 500, "text/html; charset=utf-8", body, cache_control=False, cors=False)
             return
 
         self.send_response(404)

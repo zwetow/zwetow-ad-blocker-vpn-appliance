@@ -10,6 +10,7 @@ fi
 WG_IF="wg0"
 WG_DIR="/etc/wireguard"
 CLIENT_DIR="/etc/zwetow/clients"
+LOCAL_IP="$(hostname -I | awk '{print $1}')"
 mkdir -p "$CLIENT_DIR"
 chmod 700 "$CLIENT_DIR"
 
@@ -18,7 +19,7 @@ USED="$(sudo wg show "$WG_IF" allowed-ips 2>/dev/null | awk '{print $2}' | cut -
 IP="10.6.0.2"
 for i in $(seq 2 254); do
   CAND="10.6.0.$i"
-  if ! echo "$USED" | grep -qx "$CAND"; then
+  if ! grep -qx "$CAND" <<< "$USED"; then
     IP="$CAND"
     break
   fi
@@ -36,8 +37,8 @@ fi
 SERVER_PUB="$(sudo cat "$WG_DIR/server_public.key")"
 
 # You should set ENDPOINT to your public DNS later (for now it can be blank or LAN IP for testing)
-ENDPOINT="$(hostname -I | awk '{print $1}'):51820"
-DNS="$(hostname -I | awk '{print $1}')"
+ENDPOINT="${LOCAL_IP}:51820"
+DNS="$LOCAL_IP"
 
 CONF_PATH="$CLIENT_DIR/${NAME}.conf"
 

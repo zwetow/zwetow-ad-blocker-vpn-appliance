@@ -357,8 +357,6 @@ body {
 a { color: var(--link); }
 a:hover { color: var(--linkHover); }
 
-.tabs a { margin-right: 14px; text-decoration: none; font-weight: 700; }
-
 .top-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -541,23 +539,6 @@ pre {
   white-space: nowrap;
 }
 
-.stat-label {
-  color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 6px;
-}
-
-.stat-value {
-  font-size: 18px;
-  font-weight: 800;
-}
-
-@media (min-width: 860px) {
-  .service-tiles {
-    grid-template-columns: 1fr;
-  }
-}
-
 .updatebar{
   display:flex;
   align-items:center;
@@ -658,7 +639,6 @@ button.btn{
 .pill-bad.pulse { animation: pulseBad 1.6s infinite; }
 
 /* small labels */
-h1 { margin-bottom: 6px; }
 h2 { margin-top: 0; }
 </style>
 </head>
