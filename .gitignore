@@ -3,3 +3,4 @@ __pycache__/
 *.tmp
 *.swp
 .DS_Store
+support-download-server.runtime.py
