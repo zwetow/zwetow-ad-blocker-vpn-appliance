@@ -38,7 +38,6 @@ ROLLBACK_SCRIPT = "/opt/zwetow/bin/zwetow-rollback.sh"
 
 CLIENT_DIR = "/etc/zwetow/clients"
 WG_ADD_CLIENT_SCRIPT = "/opt/zwetow/bin/wg-add-client.sh"
-WG_DELETE_CLIENT_SCRIPT = "/opt/zwetow/bin/wg-delete-client.sh"
 CLIENT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 SESSION_COOKIE_NAME = "zwetow_session"
@@ -162,14 +161,6 @@ def run_add_client(name):
     if not os.path.exists(WG_ADD_CLIENT_SCRIPT):
         return (1, f"Missing script: {WG_ADD_CLIENT_SCRIPT}")
     proc = subprocess.run([WG_ADD_CLIENT_SCRIPT, name], capture_output=True, text=True)
-    out = ((proc.stdout or "") + (proc.stderr or "")).strip() or "(no output)"
-    return (proc.returncode, out)
-
-
-def run_delete_client(name):
-    if not os.path.exists(WG_DELETE_CLIENT_SCRIPT):
-        return (1, f"Missing script: {WG_DELETE_CLIENT_SCRIPT}")
-    proc = subprocess.run([WG_DELETE_CLIENT_SCRIPT, name], capture_output=True, text=True)
     out = ((proc.stdout or "") + (proc.stderr or "")).strip() or "(no output)"
     return (proc.returncode, out)
 
@@ -1486,42 +1477,6 @@ class Handler(BaseHTTPRequestHandler):
                 "message": "Admin password reset",
             })
             return
-
-        if path == "/wireguard/delete-client":
-            if not self.require_session():
-                return
-
-            try:
-                payload = self.read_json_body()
-                name = (payload.get("name") or "").strip()
-                if not name:
-                    json_response(self, 400, {"error": "Client name is required"})
-                    return
-                if not is_valid_client_name(name):
-                    json_response(self, 400, {"error": "Invalid client name. Use letters, numbers, dash, underscore only."})
-                    return
-
-                code, out = run_delete_client(name)
-                if code == 0:
-                    json_response(self, 200, {
-                        "ok": True,
-                        "deleted": name,
-                        "message": out or f"Client deleted: {name}",
-                    })
-                    return
-                if code == 3:
-                    json_response(self, 404, {"error": out or f"Client not found: {name}"})
-                    return
-                json_response(self, 500, {"error": out or "Failed to delete WireGuard client"})
-                return
-
-            except ValueError as exc:
-                json_response(self, 400, {"error": str(exc)})
-                return
-
-            except Exception as exc:
-                json_response(self, 500, {"error": str(exc)})
-                return
 
         if path == "/setup/save":
             try:

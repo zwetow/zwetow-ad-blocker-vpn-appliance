@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUT="/var/www/html/index.html"
+PUBLIC_OUT="/var/www/html/index.html"
+PROTECTED_OUT="/var/www/html/zwetow/dashboard.html"
 
 # Optional embedded logo (keeps Pi-hole webserver locked down)
 LOGO_PATH="/var/www/html/zwetow-logo.png"
@@ -17,6 +18,663 @@ fi
 
 HOST="$(hostname)"
 IP="$(hostname -I | awk '{print $1}')"
+FORCE_SETUP_FILE="/opt/zwetow/state/force_setup"
+SETUP_COMPLETE_FILE="/opt/zwetow/state/setup_complete"
+WIZARD_TEST_MODE="false"
+if [[ -f "$FORCE_SETUP_FILE" ]]; then
+  WIZARD_TEST_MODE="true"
+fi
+
+if [[ -f "$FORCE_SETUP_FILE" || ! -f "$SETUP_COMPLETE_FILE" ]]; then
+cat > "$PUBLIC_OUT" <<'EOF'
+<!doctype html>
+<html>
+<head>
+  <link rel="icon" href="data:,">
+  <meta charset="utf-8">
+  <title>Zwetow Appliance Setup</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #0f172a;
+      --panel2: #0b1220;
+      --border: #243244;
+      --text: #e6edf3;
+      --muted: #9aa6b2;
+      --accent: #f97316;
+      --ok: #22c55e;
+      --bad: #ef4444;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 860px;
+      margin: 28px auto;
+      padding: 0 16px;
+      background: radial-gradient(1200px 600px at 20% 0%, rgba(125,211,252,0.08), transparent 55%),
+                  radial-gradient(900px 500px at 90% 10%, rgba(239,68,68,0.06), transparent 55%),
+                  var(--bg);
+      color: var(--text);
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: linear-gradient(145deg, var(--panel), var(--panel2));
+      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+      padding: 18px;
+    }
+    h1 { margin: 0 0 6px 0; }
+    .muted { color: var(--muted); }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 8px;
+      margin: 14px 0 18px;
+    }
+    .step {
+      text-align: center;
+      font-size: 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 7px 4px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.02);
+    }
+    .step.active {
+      color: #fff;
+      border-color: rgba(249,115,22,0.65);
+      background: rgba(249,115,22,0.18);
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    label {
+      display: block;
+      font-weight: 700;
+      margin: 12px 0 6px;
+    }
+    input, select {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #0a0f1a;
+      color: var(--text);
+      padding: 10px 12px;
+      font: inherit;
+    }
+    .radios {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+    }
+    .radios label {
+      margin: 0;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .btn {
+      border: 1px solid rgba(249,115,22,0.55);
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(249,115,22,0.22), rgba(249,115,22,0.12));
+      color: var(--text);
+      padding: 9px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn:hover { border-color: rgba(249,115,22,0.85); }
+    .btn-ghost {
+      border: 1px solid var(--border);
+      background: transparent;
+    }
+    .msg {
+      margin-top: 12px;
+      font-size: 13px;
+      color: var(--muted);
+      min-height: 18px;
+      white-space: pre-line;
+    }
+    .msg.ok { color: var(--ok); }
+    .msg.bad { color: var(--bad); }
+    .update-box {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      padding: 12px;
+      margin-top: 8px;
+    }
+    .update-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .inline-panel {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      padding: 12px;
+    }
+    .inline-panel h3 {
+      margin: 0 0 8px 0;
+      font-size: 15px;
+    }
+    .inline-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .msg.warn { color: #f59e0b; }
+    .warning-list {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(245,158,11,0.35);
+      border-radius: 12px;
+      background: rgba(69,26,3,0.20);
+      color: #fcd34d;
+      white-space: pre-line;
+    }
+    @media (max-width: 860px) {
+      .steps { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Welcome to Zwetow Setup</h1>
+    <p class="muted">Complete this one-time wizard to configure your appliance.</p>
+
+    <div class="steps">
+      <div class="step active">Welcome</div>
+      <div class="step">Updates</div>
+      <div class="step">Hostname</div>
+      <div class="step">Timezone</div>
+      <div class="step">Email</div>
+      <div class="step">Admin Access</div>
+      <div class="step">WireGuard</div>
+      <div class="step">First Client</div>
+      <div class="step">Finish</div>
+    </div>
+
+    <div class="panel active">
+      <h2>Welcome</h2>
+      <p>This wizard configures hostname, timezone, support email, appliance admin access, and WireGuard basics.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Appliance Updates</h2>
+      <p class="muted">Check and optionally apply updates before continuing setup.</p>
+      <div class="update-box">
+        <div><b>Current version:</b> <span id="setup-current-version">unknown</span></div>
+        <div><b>Latest version:</b> <span id="setup-latest-version">unknown</span></div>
+        <div><b>Status:</b> <span id="setup-update-status">Not checked</span></div>
+      </div>
+      <div class="update-actions">
+        <button id="setup-update-now" class="btn" type="button">Update Now</button>
+        <button id="setup-update-skip" class="btn btn-ghost" type="button">Skip</button>
+      </div>
+      <p class="muted">If an update fails, you can continue setup.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Device Hostname</h2>
+      <label for="hostname">Hostname</label>
+      <input id="hostname" type="text" placeholder="zwetow-appliance">
+      <p class="muted">Letters, numbers, and dashes only.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Timezone</h2>
+      <label for="timezone">Timezone</label>
+      <input id="timezone" type="text" placeholder="America/Chicago">
+    </div>
+
+    <div class="panel">
+      <h2>Admin / Support Email</h2>
+      <label for="admin_email">Email</label>
+      <input id="admin_email" type="email" placeholder="admin@example.com">
+    </div>
+
+    <div class="panel">
+      <h2>Admin Access</h2>
+      <label for="admin_username">Admin Username</label>
+      <input id="admin_username" type="text" placeholder="admin" autocomplete="username">
+
+      <label for="admin_password">Admin Password</label>
+      <input id="admin_password" type="password" placeholder="At least 10 characters" autocomplete="new-password">
+
+      <label for="admin_password_confirm">Confirm Password</label>
+      <input id="admin_password_confirm" type="password" placeholder="Repeat password" autocomplete="new-password">
+
+      <p class="muted">These credentials seed the appliance admin login plus native AdGuard and Uptime Kuma admin access.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Enable WireGuard</h2>
+      <div class="radios">
+        <label><input type="radio" name="wg_enabled" value="yes"> Yes</label>
+        <label><input type="radio" name="wg_enabled" value="no" checked> No</label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Create First WireGuard Client (Optional)</h2>
+      <label for="first_client">Client Name</label>
+      <input id="first_client" type="text" placeholder="phone">
+      <p class="muted">Only used if WireGuard is enabled.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Finish</h2>
+      <p>Click <b>Complete Setup</b> to save configuration and mark setup complete.</p>
+      <pre id="summary" style="background:#0a0f1a;border:1px solid var(--border);border-radius:12px;padding:12px;"></pre>
+      <div id="wg-conflict-panel" class="inline-panel" style="display:none;">
+        <h3>WireGuard Client Conflict</h3>
+        <p class="muted">
+          A first client name is set, but WireGuard is currently disabled.
+          Choose how to continue.
+        </p>
+        <div class="inline-actions">
+          <button id="wg-conflict-enable" class="btn" type="button">Enable WireGuard and create client</button>
+          <button id="wg-conflict-skip" class="btn btn-ghost" type="button">Continue without client</button>
+          <button id="wg-conflict-cancel" class="btn btn-ghost" type="button">Cancel and go back</button>
+        </div>
+      </div>
+      <div id="setup-success-panel" class="inline-panel" style="display:none;">
+        <h3>Setup Completed</h3>
+        <p id="setup-success-text">Setup completed successfully.</p>
+        <div id="setup-warning-list" class="warning-list" style="display:none;"></div>
+        <p class="muted">
+          Testing mode is still enabled (`force_setup`), so this wizard will continue to appear
+          until that file is removed.
+        </p>
+        <div class="inline-actions">
+          <button id="setup-success-reload" class="btn" type="button">Reload Wizard</button>
+          <button id="setup-success-instructions-btn" class="btn btn-ghost" type="button">Show Dashboard Instructions</button>
+        </div>
+        <div id="setup-success-instructions" class="muted" style="display:none; margin-top:10px; white-space:pre-line;">
+Remove testing mode on the appliance:
+sudo rm -f /opt/zwetow/state/force_setup
+
+Re-render dashboard page:
+sudo /opt/zwetow/bin/render-index.sh
+
+Then refresh this browser tab.
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="saveBtn" class="btn btn-ghost" type="button">Save Progress</button>
+      <div style="display:flex;gap:8px;">
+        <button id="prevBtn" class="btn btn-ghost" type="button">Back</button>
+        <button id="nextBtn" class="btn" type="button">Next</button>
+      </div>
+    </div>
+
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <script>
+    const WIZARD_TEST_MODE = __WIZARD_TEST_MODE__;
+    const panels = Array.from(document.querySelectorAll('.panel'));
+    const steps = Array.from(document.querySelectorAll('.step'));
+    const msg = document.getElementById('msg');
+    const saveBtn = document.getElementById('saveBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const summaryEl = document.getElementById('summary');
+    const updateNowBtn = document.getElementById('setup-update-now');
+    const updateSkipBtn = document.getElementById('setup-update-skip');
+    const currentVerEl = document.getElementById('setup-current-version');
+    const latestVerEl = document.getElementById('setup-latest-version');
+    const updateStateEl = document.getElementById('setup-update-status');
+    const wgConflictPanel = document.getElementById('wg-conflict-panel');
+    const wgConflictEnableBtn = document.getElementById('wg-conflict-enable');
+    const wgConflictSkipBtn = document.getElementById('wg-conflict-skip');
+    const wgConflictCancelBtn = document.getElementById('wg-conflict-cancel');
+    const successPanel = document.getElementById('setup-success-panel');
+    const successText = document.getElementById('setup-success-text');
+    const successReloadBtn = document.getElementById('setup-success-reload');
+    const successInstructionsBtn = document.getElementById('setup-success-instructions-btn');
+    const successInstructions = document.getElementById('setup-success-instructions');
+    const successWarningList = document.getElementById('setup-warning-list');
+
+    let stepIndex = 0;
+    const WIREGUARD_STEP_INDEX = 6;
+
+    function apiBase() {
+      return 'http://' + window.location.hostname + ':9091';
+    }
+
+    function getConfig() {
+      const wgYes = document.querySelector('input[name="wg_enabled"][value="yes"]');
+      return {
+        hostname: (document.getElementById('hostname').value || '').trim(),
+        timezone: (document.getElementById('timezone').value || '').trim(),
+        admin_email: (document.getElementById('admin_email').value || '').trim(),
+        admin_username: (document.getElementById('admin_username').value || '').trim(),
+        admin_password: document.getElementById('admin_password').value || '',
+        admin_password_confirm: document.getElementById('admin_password_confirm').value || '',
+        wireguard_enabled: !!(wgYes && wgYes.checked),
+        first_client: (document.getElementById('first_client').value || '').trim()
+      };
+    }
+
+    function setMessage(text, cls) {
+      msg.textContent = text || '';
+      msg.className = 'msg' + (cls ? ' ' + cls : '');
+    }
+
+    function setWireguardEnabled(enabled) {
+      const yes = document.querySelector('input[name="wg_enabled"][value="yes"]');
+      const no = document.querySelector('input[name="wg_enabled"][value="no"]');
+      if (!yes || !no) return;
+      yes.checked = !!enabled;
+      no.checked = !enabled;
+    }
+
+    function hideWireGuardConflictPanel() {
+      if (wgConflictPanel) wgConflictPanel.style.display = 'none';
+    }
+
+    function showWireGuardConflictPanel() {
+      if (wgConflictPanel) wgConflictPanel.style.display = 'block';
+    }
+
+    function showCompletionSuccessPanel() {
+      if (successPanel) successPanel.style.display = 'block';
+      if (nextBtn) nextBtn.disabled = true;
+      if (saveBtn) saveBtn.disabled = true;
+    }
+
+    function renderCompletionWarnings(warnings) {
+      if (!successWarningList) return;
+      if (!Array.isArray(warnings) || !warnings.length) {
+        successWarningList.style.display = 'none';
+        successWarningList.textContent = '';
+        return;
+      }
+      successWarningList.style.display = 'block';
+      successWarningList.textContent = 'Warnings:\n- ' + warnings.join('\n- ');
+    }
+
+    function updateSummary() {
+      if (!summaryEl) return;
+      const c = getConfig();
+      summaryEl.textContent = JSON.stringify({
+        hostname: c.hostname,
+        timezone: c.timezone,
+        admin_email: c.admin_email,
+        admin_username: c.admin_username,
+        wireguard_enabled: c.wireguard_enabled,
+        first_client: c.first_client
+      }, null, 2);
+    }
+
+    function validateAdminAccess(config) {
+      if (!config.admin_username) {
+        throw new Error('Enter an admin username.');
+      }
+      if (config.admin_password.length < 10) {
+        throw new Error('Admin password must be at least 10 characters.');
+      }
+      if (config.admin_password !== config.admin_password_confirm) {
+        throw new Error('Admin password confirmation does not match.');
+      }
+    }
+
+    function renderUpdateMeta(meta) {
+      if (!meta) return;
+      if (currentVerEl) currentVerEl.textContent = meta.current_version || 'unknown';
+      if (latestVerEl) latestVerEl.textContent = meta.latest_version || 'unknown';
+      if (updateStateEl) {
+        updateStateEl.textContent = meta.update_available
+          ? 'Update available'
+          : 'No update flagged';
+      }
+    }
+
+    function renderStep() {
+      panels.forEach((panel, idx) => panel.classList.toggle('active', idx === stepIndex));
+      steps.forEach((step, idx) => step.classList.toggle('active', idx === stepIndex));
+      prevBtn.disabled = stepIndex === 0;
+      nextBtn.textContent = stepIndex === panels.length - 1 ? 'Complete Setup' : 'Next';
+      if (stepIndex === panels.length - 1) updateSummary();
+    }
+
+    async function loadExistingConfig() {
+      try {
+        const res = await fetch(apiBase() + '/setup/config?_=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to load setup config');
+        const data = await res.json();
+        const cfg = data && data.config ? data.config : {};
+        renderUpdateMeta(data && data.update ? data.update : null);
+
+        if (cfg.hostname) document.getElementById('hostname').value = cfg.hostname;
+        if (cfg.timezone) document.getElementById('timezone').value = cfg.timezone;
+        if (cfg.admin_email) document.getElementById('admin_email').value = cfg.admin_email;
+        if (cfg.admin_username) document.getElementById('admin_username').value = cfg.admin_username;
+        if (cfg.first_client) document.getElementById('first_client').value = cfg.first_client;
+        if (cfg.wireguard_enabled) {
+          const yes = document.querySelector('input[name="wg_enabled"][value="yes"]');
+          const no = document.querySelector('input[name="wg_enabled"][value="no"]');
+          if (yes) yes.checked = true;
+          if (no) no.checked = false;
+        }
+      } catch (err) {
+        setMessage('Could not load previous setup values: ' + err.message, 'bad');
+      }
+      updateSummary();
+    }
+
+    async function runWizardUpdateNow() {
+      if (updateStateEl) updateStateEl.textContent = 'Updating...';
+      const res = await fetch(apiBase() + '/setup/update-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      renderUpdateMeta(data && data.update ? data.update : null);
+      if (!res.ok || !data.ok) {
+        setMessage('Update failed. You can continue setup.\n' + (data.detail || 'No detail.'), 'bad');
+        if (updateStateEl) updateStateEl.textContent = 'Update failed';
+        return;
+      }
+      setMessage('Update completed successfully.', 'ok');
+      if (updateStateEl) updateStateEl.textContent = 'Update complete';
+    }
+
+    async function saveProgress() {
+      const payload = getConfig();
+      const res = await fetch(apiBase() + '/setup/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setMessage('Progress saved.', 'ok');
+      updateSummary();
+    }
+
+    async function completeSetup() {
+      const payload = getConfig();
+      let res;
+      let data;
+      try {
+        res = await fetch(apiBase() + '/setup/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {
+        throw new Error('Network error while completing setup: ' + err.message);
+      }
+      try {
+        data = await res.json();
+      } catch (err) {
+        throw new Error('Setup API returned an invalid response.');
+      }
+      if (!res.ok) {
+        throw new Error(data.error || 'Setup completion failed');
+      }
+      if (!data || data.ok !== true) {
+        throw new Error(data && data.error ? data.error : 'Setup completion was not confirmed');
+      }
+
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      if (successText) {
+        successText.textContent = warnings.length
+          ? 'Setup completed successfully with warnings.'
+          : 'Setup completed successfully.';
+      }
+      renderCompletionWarnings(warnings);
+      if (warnings.length) {
+        setMessage('Setup completed with warnings. Review the notes below.', 'warn');
+      } else {
+        setMessage('Setup completed successfully.', 'ok');
+      }
+      if (WIZARD_TEST_MODE) {
+        showCompletionSuccessPanel();
+      } else {
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 700);
+      }
+    }
+
+    saveBtn.addEventListener('click', async () => {
+      try {
+        await saveProgress();
+      } catch (err) {
+        setMessage(err.message, 'bad');
+      }
+    });
+
+    prevBtn.addEventListener('click', () => {
+      if (stepIndex > 0) {
+        stepIndex -= 1;
+        renderStep();
+      }
+    });
+
+    nextBtn.addEventListener('click', async () => {
+      if (stepIndex < panels.length - 1) {
+        hideWireGuardConflictPanel();
+        stepIndex += 1;
+        renderStep();
+        return;
+      }
+      const cfg = getConfig();
+      try {
+        validateAdminAccess(cfg);
+      } catch (err) {
+        setMessage(err.message, 'bad');
+        return;
+      }
+      if (cfg.first_client && !cfg.wireguard_enabled) {
+        showWireGuardConflictPanel();
+        setMessage('Resolve the WireGuard client conflict before finishing.', 'bad');
+        return;
+      }
+      try {
+        hideWireGuardConflictPanel();
+        await completeSetup();
+      } catch (err) {
+        setMessage(err.message, 'bad');
+      }
+    });
+
+    if (updateNowBtn) {
+      updateNowBtn.addEventListener('click', async () => {
+        try {
+          await runWizardUpdateNow();
+        } catch (err) {
+          setMessage('Update failed. You can continue setup: ' + err.message, 'bad');
+          if (updateStateEl) updateStateEl.textContent = 'Update failed';
+        }
+      });
+    }
+
+    if (updateSkipBtn) {
+      updateSkipBtn.addEventListener('click', () => {
+        if (stepIndex < panels.length - 1) {
+          hideWireGuardConflictPanel();
+          stepIndex += 1;
+          renderStep();
+        }
+      });
+    }
+
+    if (wgConflictEnableBtn) {
+      wgConflictEnableBtn.addEventListener('click', async () => {
+        setWireguardEnabled(true);
+        hideWireGuardConflictPanel();
+        setMessage('WireGuard enabled for setup completion.', 'ok');
+        try {
+          await completeSetup();
+        } catch (err) {
+          setMessage(err.message, 'bad');
+        }
+      });
+    }
+
+    if (wgConflictSkipBtn) {
+      wgConflictSkipBtn.addEventListener('click', async () => {
+        const firstClient = document.getElementById('first_client');
+        if (firstClient) firstClient.value = '';
+        hideWireGuardConflictPanel();
+        setMessage('Continuing without creating a first client.', 'ok');
+        try {
+          await completeSetup();
+        } catch (err) {
+          setMessage(err.message, 'bad');
+        }
+      });
+    }
+
+    if (wgConflictCancelBtn) {
+      wgConflictCancelBtn.addEventListener('click', () => {
+        hideWireGuardConflictPanel();
+        stepIndex = WIREGUARD_STEP_INDEX;
+        renderStep();
+      });
+    }
+
+    if (successReloadBtn) {
+      successReloadBtn.addEventListener('click', () => window.location.reload());
+    }
+
+    if (successInstructionsBtn) {
+      successInstructionsBtn.addEventListener('click', () => {
+        if (!successInstructions) return;
+        const isHidden = successInstructions.style.display === 'none';
+        successInstructions.style.display = isHidden ? 'block' : 'none';
+        successInstructionsBtn.textContent = isHidden ? 'Hide Dashboard Instructions' : 'Show Dashboard Instructions';
+      });
+    }
+
+    loadExistingConfig();
+    renderStep();
+  </script>
+</body>
+</html>
+EOF
+sed -i "s/__WIZARD_TEST_MODE__/${WIZARD_TEST_MODE}/g" "$PUBLIC_OUT"
+exit 0
+fi
+
 CURRENT_VER="$(cat /opt/zwetow/VERSION 2>/dev/null || echo 'unknown')"
 LATEST_VER="$(cat /opt/zwetow/state/LATEST_VERSION 2>/dev/null || echo 'unknown')"
 UPDATE_AVAIL=""
@@ -73,12 +731,17 @@ PH_Q="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get(
 PH_STATUS="$(python3 -c "import json; d=json.loads('''$METRICS_JSON'''); print(d.get('pihole_status','?'))" 2>/dev/null || echo '?')"
 PH_BLOCKED="$(python3 -c "import json;print(json.loads('''$METRICS_JSON''').get('pihole_ads_blocked_today','?'))" 2>/dev/null || echo '?')"
 PH_PCT="$(python3 -c "import json;print(json.loads('''$METRICS_JSON''').get('pihole_ads_percentage_today','?'))" 2>/dev/null || echo '?')"
+
 PH_LABEL="$PH_STATUS"
-if [[ "$PH_STATUS" == "enabled" ]]; then PH_LABEL="active"; fi
-if [[ "$PH_STATUS" == "disabled" ]]; then PH_LABEL="disabled"; fi
-# Pi-hole service pill based on PH_STATUS (enabled/disabled/unknown)
+
+if [[ "$PH_STATUS" == "enabled" || "$PH_STATUS" == "OK" ]]; then
+  PH_LABEL="active"
+elif [[ "$PH_STATUS" == "disabled" || "$PH_STATUS" == "BAD" ]]; then
+  PH_LABEL="inactive"
+fi
+
 PH_PILL_CLASS="pill-bad"
-if [[ "$PH_STATUS" == "enabled" ]]; then
+if [[ "$PH_STATUS" == "enabled" || "$PH_STATUS" == "OK" ]]; then
   PH_PILL_CLASS="pill-ok"
 fi
 
@@ -151,10 +814,9 @@ if [[ "$HEALTH_OK" != "yes" || "$WG_ACTIVE" != "active" || "$KUMA_ACTIVE" != "ac
 fi
 
 
-KUMA_URL="http://${IP}:3001/"
-ADMIN_URL="http://${IP}/admin/"
+mkdir -p "$(dirname "$PROTECTED_OUT")"
 
-cat > "$OUT" <<EOF
+cat > "$PROTECTED_OUT" <<EOF
 <!doctype html>
 <html>
 <head>
@@ -686,8 +1348,8 @@ ${UPDATE_AVAIL:+
     <span class="muted">Latest: ${LATEST_VER}</span>
   </div>
   <div class="update-right">
-    <a class="btn" href="http://${IP}:9091/update">Update</a>
-    <a class="btn btn-ghost" href="http://${IP}:9091/rollback">Rollback</a>
+    <a class="btn" href="/update">Update</a>
+    <a class="btn btn-ghost" href="/rollback">Rollback</a>
   </div>
 </div>
 }
@@ -851,9 +1513,11 @@ ${UPDATE_AVAIL:+
 
  <div id="links" class="card">
     <h2>Quick Links</h2>
-    <p><a href="${ADMIN_URL}">Pi-hole Admin</a></p>
-    <p><a href="${KUMA_URL}">Uptime Kuma</a></p>
-    <p><a href="http://${IP}:9091/support">Download Support Bundle</a></p>
+    <p><a href="/apps/adguard/">AdGuard / DNS Admin</a></p>
+    <p><a href="/apps/kuma/">Uptime Kuma</a></p>
+    <p><a href="/admin/">Pi-hole</a></p>
+    <p><a href="/support">Download Support Bundle</a></p>
+    <p><a href="/logout">Log Out</a></p>
   </div>
 </div>
 
@@ -879,7 +1543,7 @@ function updateLastRefreshLabel() {
 async function refreshStatus() {
   try {
     const res = await fetch(
-      'http://' + window.location.hostname + ':9091/status.json?_=' + Date.now(),
+      '/status.json?_=' + Date.now(),
       { cache: 'no-store' }
     );
 
@@ -924,7 +1588,7 @@ async function refreshStatus() {
 async function refreshMetrics() {
   try {
     const res = await fetch(
-      'http://' + window.location.hostname + ':9091/metrics?_=' + Date.now(),
+      '/metrics?_=' + Date.now(),
       { cache: 'no-store' }
     );
 
@@ -974,7 +1638,7 @@ refreshMetrics();
 async function loadWireGuardClients() {
   try {
     const res = await fetch(
-      'http://' + window.location.hostname + ':9091/wireguard/clients?_=' + Date.now(),
+      '/wireguard/clients?_=' + Date.now(),
       { cache: 'no-store' }
     );
 
@@ -1028,10 +1692,17 @@ async function loadWireGuardClients() {
       const dlLink = document.createElement('a');
       dlLink.className = 'btn btn-ghost';
       dlLink.textContent = 'Download Config';
-      dlLink.href = 'http://' + window.location.hostname + ':9091/wireguard/client/' + encodeURIComponent(name) + '/config';
+      dlLink.href = '/wireguard/client/' + encodeURIComponent(name) + '/config';
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'btn btn-ghost';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.onclick = () => deleteWireGuardClient(name);
 
       actions.appendChild(qrBtn);
       actions.appendChild(dlLink);
+      actions.appendChild(deleteBtn);
 
       row.appendChild(label);
       row.appendChild(actions);
@@ -1053,10 +1724,50 @@ function showWireGuardQr(name) {
 
   if (!panel || !img || !dl) return;
 
-  img.src = 'http://' + window.location.hostname + ':9091/wireguard/client/' + encodeURIComponent(name) + '/qr?_=' + Date.now();
-  dl.href = 'http://' + window.location.hostname + ':9091/wireguard/client/' + encodeURIComponent(name) + '/config';
+  img.src = '/wireguard/client/' + encodeURIComponent(name) + '/qr?_=' + Date.now();
+  dl.href = '/wireguard/client/' + encodeURIComponent(name) + '/config';
   dl.setAttribute('download', name + '.conf');
   panel.style.display = 'block';
+}
+
+async function deleteWireGuardClient(name) {
+  const status = document.getElementById('wg-create-status');
+  const panel = document.getElementById('wg-qr-panel');
+  const img = document.getElementById('wg-qr-image');
+  const dl = document.getElementById('wg-config-download');
+
+  if (!name) return;
+  if (!confirm('Delete WireGuard client "' + name + '" from this appliance?')) {
+    return;
+  }
+
+  try {
+    if (status) status.textContent = 'Deleting client ' + name + '...';
+
+    const res = await fetch('/wireguard/delete-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name })
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      throw new Error(data.error || 'Failed to delete client');
+    }
+
+    if (panel && panel.style.display !== 'none' && dl && dl.getAttribute('download') === name + '.conf') {
+      panel.style.display = 'none';
+      if (img) img.removeAttribute('src');
+      dl.removeAttribute('href');
+      dl.removeAttribute('download');
+    }
+
+    if (status) status.textContent = data.message || ('Client deleted: ' + name);
+    await loadWireGuardClients();
+  } catch (e) {
+    console.error('deleteWireGuardClient failed:', e);
+    if (status) status.textContent = 'Failed to delete client: ' + e.message;
+  }
 }
 
 async function createWireGuardClient() {
@@ -1072,7 +1783,7 @@ async function createWireGuardClient() {
 
   try {
     const res = await fetch(
-      'http://' + window.location.hostname + ':9091/wireguard/add-client?name=' + encodeURIComponent(name),
+      '/wireguard/add-client?name=' + encodeURIComponent(name),
       { cache: 'no-store' }
     );
 
@@ -1110,6 +1821,47 @@ setInterval(refreshStatus, 15000);
 setInterval(refreshMetrics, 60000);
 setInterval(updateLastRefreshLabel, 1000);
 </script>
+</body>
+</html>
+EOF
+
+cat > "$PUBLIC_OUT" <<EOF
+<!doctype html>
+<html>
+<head>
+  <link rel="icon" href="data:,">
+  <meta charset="utf-8">
+  <title>Zwetow Appliance</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="0; url=http://${IP}:9091/">
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #0b0f14;
+      color: #e6edf3;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    .card {
+      max-width: 480px;
+      border: 1px solid #243244;
+      border-radius: 18px;
+      background: linear-gradient(145deg, #0f172a, #0b1220);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+      padding: 22px;
+    }
+    a { color: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 style="margin-top:0;">Zwetow Appliance</h1>
+    <p>The dashboard is now protected by the central appliance login.</p>
+    <p><a href="http://${IP}:9091/">Continue to login</a></p>
+  </div>
 </body>
 </html>
 EOF
